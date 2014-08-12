@@ -40,7 +40,7 @@ def fetch_wikis():
         html_db[title] = html_content
 
         # mediawiki
-        url = BASE_EDIT_URL.format(title)
+        url = BASE_XML_URL.format(title)
         content = get_wiki_content(url).encode('utf-8')
         db[title] = content
 
@@ -68,11 +68,19 @@ def get_wiki_html(url):
 def get_wiki_content(url):
     resp = requests.get(url)
 
-    tree = etree.fromstring(resp.content)
-    for element in tree.iter():
-        if element.tag == 'textarea':
-            if element.attrib.get('id') == 'wpTextbox1':
-                return element.text
+    parser = etree.XMLParser(ns_clean=True)
+    tree = etree.fromstring(resp.content, parser=parser)
+    ns = '{http://www.mediawiki.org/xml/export-0.5/}'
+    page = tree.find('{}page'.format(ns))
+    revision = page.find('{}revision'.format(ns))
+    text = revision.find('{}text'.format(ns))
+    if text.text:
+        return text.text
+
+    # for element in tree.iter():
+    #     if element.tag == 'textarea':
+    #         if element.attrib.get('id') == 'wpTextbox1':
+    #             return element.text
 
     return ''
 
@@ -142,7 +150,7 @@ def download_image(url, file_name):
 
 if __name__ == '__main__':
     _start = time.time()
-    # fetch_wikis()
+    fetch_wikis()
     # fetch_images()
     _end = time.time()
     print "total: {}".format(_end - _start)
