@@ -21,6 +21,7 @@ BASE_XML_URL = 'http://learn.labster.com/index.php/Special:Export/{}'
 DUMP_BASE_PATH = '../labster-wiki-dump'
 DUMP_IMAGES_PATH = os.path.join(DUMP_BASE_PATH, 'images')
 DUMP_HTML_PATH = os.path.join(DUMP_BASE_PATH, 'html')
+DUMP_MEDIAWIKI_PATH = os.path.join(DUMP_BASE_PATH, 'mediawiki')
 
 WIKI_DB_FILE = os.path.join(DUMP_BASE_PATH, 'wiki_data.shelve')
 WIKI_IMAGES_FILE = os.path.join(DUMP_BASE_PATH, 'wiki_images.shelve')
@@ -50,6 +51,9 @@ def fetch_wiki_urls():
 def fetch_wikis():
     if not os.path.exists(DUMP_HTML_PATH):
         os.mkdir(DUMP_HTML_PATH)
+
+    if not os.path.exists(DUMP_MEDIAWIKI_PATH):
+        os.mkdir(DUMP_MEDIAWIKI_PATH)
 
     db = shelve.open(WIKI_DB_FILE)
     wiki_urls = fetch_wiki_urls()
@@ -97,6 +101,7 @@ def process_requests(db, index, slug, detail_instance, xml_instance):
     }
 
     store_wiki_html(html_content, slug, index)
+    store_wiki_mediawiki(xml_content, slug, index)
 
 
 def parse_wiki_html(content):
@@ -127,6 +132,20 @@ def store_wiki_html(content, slug, prefix=''):
         f.write(header)
         f.write(content)
         f.write(footer)
+
+    return path
+
+
+def store_wiki_mediawiki(content, slug, prefix=''):
+    if prefix:
+        prefix = str(prefix).zfill(4)
+
+    slug = "{}_{}".format(prefix, slug)
+    path = '{}.mediawiki'.format(slug)
+    path = os.path.join(DUMP_MEDIAWIKI_PATH, path)
+
+    with open(path, 'w') as f:
+        f.write(content.encode('utf-8'))
 
     return path
 
