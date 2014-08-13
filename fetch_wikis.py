@@ -1,11 +1,14 @@
 #! /bin/env python
 
-from lxml import etree
 import os
 import os.path
-import requests
 import shelve
 import time
+
+from lxml import etree
+from requests_futures.sessions import FuturesSession
+import requests
+
 
 ALL_FILE = 'all.txt'
 
@@ -20,18 +23,29 @@ DUMP_IMAGES_PATH = os.path.join(DUMP_BASE_PATH, 'images')
 DUMP_HTML_PATH = os.path.join(DUMP_BASE_PATH, 'html')
 
 WIKI_DB_FILE = os.path.join(DUMP_BASE_PATH, 'wiki_data.shelve')
-WIKI_HTML_DB_FILE = os.path.join(DUMP_BASE_PATH, 'wiki_html.shelve')
 WIKI_IMAGES_FILE = os.path.join(DUMP_BASE_PATH, 'wiki_images.shelve')
 
 BANNED_SLUGS = []
 
 
-def fetch_banned_slugs():
-    banned_slugs = []
-    with open('banned.txt', 'r') as f:
-        banned_slugs = f.readlines()
+session = FuturesSession()
+futures = []
 
-    return [each.strip() for each in banned_slugs]
+
+def fetch_wiki_urls():
+    banned_slugs = fetch_banned_slugs()
+    tree = etree.parse(ALL_FILE)
+    for element in tree.iter():
+        if element.tag != 'a':
+            continue
+
+        href = element.attrib.get('href')
+        slug = href.split('/')[2]
+
+        if slug in banned_slugs:
+            continue
+
+        yield href, slug
 
 
 def fetch_wikis():
@@ -39,55 +53,56 @@ def fetch_wikis():
         os.mkdir(DUMP_HTML_PATH)
 
     db = shelve.open(WIKI_DB_FILE)
-    html_db = shelve.open(WIKI_HTML_DB_FILE)
-    banned_slugs = fetch_banned_slugs()
 
-    index = 1
+    wiki_urls = fetch_wiki_urls()
+    for urls in wiki_urls:
+        href, slug = urls
 
-    tree = etree.parse(ALL_FILE)
-    for element in tree.iter():
-        if element.tag != 'a':
-            continue
+        detail_url = BASE_DETAIL_URL.format(href)
+        xml_url = BASE_XML_URL.format(slug)
 
+        detail_future = session.get(detail_url)
+        xml_future = session.get(xml_url)
+
+        futures.append({
+            'slug': slug,
+            'detail_instance': detail_future,
+            'xml_instance': xml_future,
+        })
+
+    for index, future in enumerate(futures, start=1):
         _start = time.time()
 
-        href = element.attrib.get('href')
-        slug = href.split('/')[2]
+        slug = future['slug']
+        detail_instance = future['detail_instance']
+        xml_instance = future['xml_instance']
 
-        if slug in banned_slugs:
-            print("BANNED: {}".format(slug))
-            continue
+        print("{}: {}".format(index, slug))
 
-        print("{}: {}".format(index, slug)),
-        fetch_single_wiki(db, html_db, href, slug, index)
-        index = index + 1
+        detail_response = detail_instance.result()
+        html_content, title = parse_wiki_html(detail_response.content)
+
+        xml_response = xml_instance.result()
+        xml_content = parse_wiki_xml(xml_response.content)
+
+        db[slug] = {
+            'title': title,
+            'html': html_content,
+            'mediawiki': xml_content,
+        }
+
+        store_wiki_html(html_content, slug, index)
+
         _end = time.time()
-
         print("... {}".format(_end - _start))
 
     db.close()
-    html_db.close()
 
 
-def fetch_single_wiki(db, html_db, href, slug, index):
-    # html
-    detail_url = BASE_DETAIL_URL.format(href)
-    html_content, title = fetch_wiki_html(detail_url)
-    html_db[slug] = html_content
-
-    # mediawiki
-    url = BASE_XML_URL.format(slug)
-    content = fetch_wiki_content(url).encode('utf-8')
-    db[slug] = content
-
-    store_wiki_html(html_content, slug, index)
-
-
-def fetch_wiki_html(url):
-    resp = requests.get(url)
+def parse_wiki_html(content):
     html = title = ''
 
-    tree = etree.fromstring(resp.content)
+    tree = etree.fromstring(content)
     for element in tree.iter():
         if element.tag == 'div' and element.attrib.get('id') == 'firstHeading':
             title = element.text
@@ -116,22 +131,15 @@ def store_wiki_html(content, slug, prefix=''):
     return path
 
 
-def fetch_wiki_content(url):
-    resp = requests.get(url)
-
+def parse_wiki_xml(content):
     parser = etree.XMLParser(ns_clean=True)
-    tree = etree.fromstring(resp.content, parser=parser)
+    tree = etree.fromstring(content, parser=parser)
     ns = '{http://www.mediawiki.org/xml/export-0.5/}'
     page = tree.find('{}page'.format(ns))
     revision = page.find('{}revision'.format(ns))
     text = revision.find('{}text'.format(ns))
     if text.text:
         return text.text
-
-    # for element in tree.iter():
-    #     if element.tag == 'textarea':
-    #         if element.attrib.get('id') == 'wpTextbox1':
-    #             return element.text
 
     return ''
 
@@ -203,6 +211,14 @@ def download_image(url, file_name):
         with open(path, 'wb') as f:
             for chunk in resp.iter_content(1024):
                 f.write(chunk)
+
+
+def fetch_banned_slugs():
+    banned_slugs = []
+    with open('banned.txt', 'r') as f:
+        banned_slugs = f.readlines()
+
+    return [each.strip() for each in banned_slugs]
 
 
 if __name__ == '__main__':
