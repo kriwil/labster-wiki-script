@@ -1,6 +1,8 @@
 #! /bin/env python
 
 from lxml import etree
+import os
+import os.path
 import requests
 import shelve
 import time
@@ -13,12 +15,22 @@ BASE_EDIT_URL = 'http://learn.labster.com/index.php?title={}&action=edit'
 BASE_IMAGE_URL = 'http://learn.labster.com{}'
 BASE_XML_URL = 'http://learn.labster.com/index.php/Special:Export/{}'
 
-WIKI_DB_FILE = 'wiki_data.shelve'
-WIKI_HTML_DB_FILE = 'wiki_html.shelve'
-WIKI_IMAGES_FILE = 'wiki_images.shelve'
+DUMP_BASE_PATH = '../labster-wiki-dump'
+DUMP_IMAGES_PATH = os.path.join(DUMP_BASE_PATH, 'images')
+DUMP_HTML_PATH = os.path.join(DUMP_BASE_PATH, 'html')
+
+WIKI_DB_FILE = os.path.join(DUMP_BASE_PATH, 'wiki_data.shelve')
+WIKI_HTML_DB_FILE = os.path.join(DUMP_BASE_PATH, 'wiki_html.shelve')
+WIKI_IMAGES_FILE = os.path.join(DUMP_BASE_PATH, 'wiki_images.shelve')
 
 
 def fetch_wikis():
+    if not os.path.exists(DUMP_IMAGES_PATH):
+        os.mkdir(DUMP_IMAGES_PATH)
+
+    if not os.path.exists(DUMP_HTML_PATH):
+        os.mkdir(DUMP_HTML_PATH)
+
     tree = etree.parse(ALL_FILE)
     db = shelve.open(WIKI_DB_FILE)
     html_db = shelve.open(WIKI_HTML_DB_FILE)
@@ -73,7 +85,8 @@ def store_wiki_html(content, slug, prefix=''):
         prefix = str(prefix).zfill(4)
 
     slug = "{}_{}".format(prefix, slug)
-    path = 'html/{}.html'.format(slug)
+    path = '{}.html'.format(slug)
+    path = os.path.join(DUMP_HTML_PATH, path)
 
     header = "<html><head></head><body>"
     footer = "</body></html>"
@@ -163,7 +176,8 @@ def fetch_images():
 
 def download_image(url, file_name):
     resp = requests.get(url, stream=True)
-    path = 'images/{}'.format(file_name)
+    path = '{}'.format(file_name)
+    path = os.path.join(DUMP_IMAGES_PATH, path)
 
     if resp.status_code == 200:
         with open(path, 'wb') as f:
@@ -174,6 +188,6 @@ def download_image(url, file_name):
 if __name__ == '__main__':
     _start = time.time()
     fetch_wikis()
-    # fetch_images()
+    fetch_images()
     _end = time.time()
     print "total: {}".format(_end - _start)
