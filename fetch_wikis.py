@@ -194,7 +194,7 @@ def fetch_images():
                 'description': description,
             }
 
-            download_image(image_url, file_name)
+            download_image(image_url, file_name, prefix=index)
             _end = time.time()
             print("... {}").format(_end - _start)
             index = index + 1
@@ -202,9 +202,12 @@ def fetch_images():
     db.close()
 
 
-def download_image(url, file_name):
+def download_image(url, file_name, prefix=''):
+    if prefix:
+        prefix = str(prefix).zfill(4)
+
     resp = requests.get(url, stream=True)
-    path = '{}'.format(file_name)
+    path = '{}_{}'.format(prefix, file_name)
     path = os.path.join(DUMP_IMAGES_PATH, path)
 
     if resp.status_code == 200:
