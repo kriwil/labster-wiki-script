@@ -23,19 +23,28 @@ WIKI_DB_FILE = os.path.join(DUMP_BASE_PATH, 'wiki_data.shelve')
 WIKI_HTML_DB_FILE = os.path.join(DUMP_BASE_PATH, 'wiki_html.shelve')
 WIKI_IMAGES_FILE = os.path.join(DUMP_BASE_PATH, 'wiki_images.shelve')
 
+BANNED_SLUGS = []
+
+
+def fetch_banned_slugs():
+    banned_slugs = []
+    with open('banned.txt', 'r') as f:
+        banned_slugs = f.readlines()
+
+    return [each.strip() for each in banned_slugs]
+
 
 def fetch_wikis():
-    if not os.path.exists(DUMP_IMAGES_PATH):
-        os.mkdir(DUMP_IMAGES_PATH)
-
     if not os.path.exists(DUMP_HTML_PATH):
         os.mkdir(DUMP_HTML_PATH)
 
-    tree = etree.parse(ALL_FILE)
     db = shelve.open(WIKI_DB_FILE)
     html_db = shelve.open(WIKI_HTML_DB_FILE)
+    banned_slugs = fetch_banned_slugs()
 
     index = 1
+
+    tree = etree.parse(ALL_FILE)
     for element in tree.iter():
         if element.tag != 'a':
             continue
@@ -44,29 +53,37 @@ def fetch_wikis():
 
         href = element.attrib.get('href')
         slug = href.split('/')[2]
+
+        if slug in banned_slugs:
+            print("BANNED: {}".format(slug))
+            continue
+
         print("{}: {}".format(index, slug)),
-
-        # html
-        detail_url = BASE_DETAIL_URL.format(href)
-        html_content, title = get_wiki_html(detail_url)
-        html_db[slug] = html_content
-
-        # mediawiki
-        url = BASE_XML_URL.format(slug)
-        content = get_wiki_content(url).encode('utf-8')
-        db[slug] = content
-
-        store_wiki_html(html_content, slug, index)
-
+        fetch_single_wiki(db, html_db, href, slug, index)
         index = index + 1
-
         _end = time.time()
+
         print("... {}".format(_end - _start))
 
     db.close()
+    html_db.close()
 
 
-def get_wiki_html(url):
+def fetch_single_wiki(db, html_db, href, slug, index):
+    # html
+    detail_url = BASE_DETAIL_URL.format(href)
+    html_content, title = fetch_wiki_html(detail_url)
+    html_db[slug] = html_content
+
+    # mediawiki
+    url = BASE_XML_URL.format(slug)
+    content = fetch_wiki_content(url).encode('utf-8')
+    db[slug] = content
+
+    store_wiki_html(html_content, slug, index)
+
+
+def fetch_wiki_html(url):
     resp = requests.get(url)
     html = title = ''
 
@@ -99,7 +116,7 @@ def store_wiki_html(content, slug, prefix=''):
     return path
 
 
-def get_wiki_content(url):
+def fetch_wiki_content(url):
     resp = requests.get(url)
 
     parser = etree.XMLParser(ns_clean=True)
@@ -120,6 +137,9 @@ def get_wiki_content(url):
 
 
 def fetch_images():
+    if not os.path.exists(DUMP_IMAGES_PATH):
+        os.mkdir(DUMP_IMAGES_PATH)
+
     resp = requests.get(ALL_IMAGES_URL)
     tree = etree.fromstring(resp.content)
 
@@ -188,6 +208,6 @@ def download_image(url, file_name):
 if __name__ == '__main__':
     _start = time.time()
     fetch_wikis()
-    fetch_images()
+    # fetch_images()
     _end = time.time()
     print "total: {}".format(_end - _start)
