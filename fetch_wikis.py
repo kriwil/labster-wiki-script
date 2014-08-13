@@ -31,18 +31,20 @@ def fetch_wikis():
         _start = time.time()
 
         href = element.attrib.get('href')
-        title = href.split('/')[2]
-        print("{}: fetching {}".format(index, title)),
+        slug = href.split('/')[2]
+        print("{}: {}".format(index, slug)),
 
         # html
         detail_url = BASE_DETAIL_URL.format(href)
-        html_content = get_wiki_html(detail_url)
-        html_db[title] = html_content
+        html_content, title = get_wiki_html(detail_url)
+        html_db[slug] = html_content
 
         # mediawiki
-        url = BASE_XML_URL.format(title)
+        url = BASE_XML_URL.format(slug)
         content = get_wiki_content(url).encode('utf-8')
-        db[title] = content
+        db[slug] = content
+
+        store_wiki_html(html_content, slug, index)
 
         index = index + 1
 
@@ -54,15 +56,34 @@ def fetch_wikis():
 
 def get_wiki_html(url):
     resp = requests.get(url)
+    html = title = ''
 
     tree = etree.fromstring(resp.content)
     for element in tree.iter():
-        if element.tag == 'div':
-            if element.attrib.get('id') == 'content':
-                for children in element.getchildren():
-                    return etree.tostring(children)
+        if element.tag == 'div' and element.attrib.get('id') == 'firstHeading':
+            title = element.text
+        if element.tag == 'div' and element.attrib.get('class') == 'mw-content-ltr':
+            html = etree.tostring(element)
 
-    return ''
+    return html, title
+
+
+def store_wiki_html(content, slug, prefix=''):
+    if prefix:
+        prefix = str(prefix).zfill(4)
+
+    slug = "{}_{}".format(prefix, slug)
+    path = 'html/{}.html'.format(slug)
+
+    header = "<html><head></head><body>"
+    footer = "</body></html>"
+
+    with open(path, 'w') as f:
+        f.write(header)
+        f.write(content)
+        f.write(footer)
+
+    return path
 
 
 def get_wiki_content(url):
@@ -91,6 +112,7 @@ def fetch_images():
 
     db = shelve.open(WIKI_IMAGES_FILE)
 
+    index = 1
     for element in tree.iter():
 
         if element.tag != 'table':
@@ -123,7 +145,7 @@ def fetch_images():
                     description = ''.join(text_list)
 
             image_url = BASE_IMAGE_URL.format(image_link)
-            print(title),
+            print("{}: {}".format(index, title)),
             db[title] = {
                 'file_name': file_name,
                 'title': title,
@@ -134,6 +156,7 @@ def fetch_images():
             download_image(image_url, file_name)
             _end = time.time()
             print("... {}").format(_end - _start)
+            index = index + 1
 
     db.close()
 
