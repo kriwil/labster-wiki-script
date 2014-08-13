@@ -29,7 +29,6 @@ BANNED_SLUGS = []
 
 
 session = FuturesSession()
-futures = []
 
 
 def fetch_wiki_urls():
@@ -53,50 +52,51 @@ def fetch_wikis():
         os.mkdir(DUMP_HTML_PATH)
 
     db = shelve.open(WIKI_DB_FILE)
-
     wiki_urls = fetch_wiki_urls()
-    for urls in wiki_urls:
+
+    for index, urls in enumerate(wiki_urls, start=1):
         href, slug = urls
+
+        _start = time.time()
+        print("{}: {}".format(index, slug))
 
         detail_url = BASE_DETAIL_URL.format(href)
         xml_url = BASE_XML_URL.format(slug)
 
-        detail_future = session.get(detail_url)
-        xml_future = session.get(xml_url)
+        detail_instance = session.get(detail_url)
+        xml_instance = session.get(xml_url)
 
-        futures.append({
+        future = {
+            'db': db,
+            'index': index,
             'slug': slug,
-            'detail_instance': detail_future,
-            'xml_instance': xml_future,
-        })
-
-    for index, future in enumerate(futures, start=1):
-        _start = time.time()
-
-        slug = future['slug']
-        detail_instance = future['detail_instance']
-        xml_instance = future['xml_instance']
-
-        print("{}: {}".format(index, slug))
-
-        detail_response = detail_instance.result()
-        html_content, title = parse_wiki_html(detail_response.content)
-
-        xml_response = xml_instance.result()
-        xml_content = parse_wiki_xml(xml_response.content)
-
-        db[slug] = {
-            'title': title,
-            'html': html_content,
-            'mediawiki': xml_content,
+            'detail_instance': detail_instance,
+            'xml_instance': xml_instance,
         }
 
-        store_wiki_html(html_content, slug, index)
+        process_requests(**future)
 
         _end = time.time()
         print("... {}".format(_end - _start))
 
     db.close()
+
+
+def process_requests(db, index, slug, detail_instance, xml_instance):
+
+    detail_response = detail_instance.result()
+    html_content, title = parse_wiki_html(detail_response.content)
+
+    xml_response = xml_instance.result()
+    xml_content = parse_wiki_xml(xml_response.content)
+
+    db[slug] = {
+        'title': title,
+        'html': html_content,
+        'mediawiki': xml_content,
+    }
+
+    store_wiki_html(html_content, slug, index)
 
 
 def parse_wiki_html(content):
@@ -224,6 +224,6 @@ def fetch_banned_slugs():
 if __name__ == '__main__':
     _start = time.time()
     fetch_wikis()
-    # fetch_images()
+    fetch_images()
     _end = time.time()
     print "total: {}".format(_end - _start)
